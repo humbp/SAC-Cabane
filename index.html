@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Disponibilités des cabanes</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+  :root { --ink:#1d2733; --muted:#5d6b7a; --line:#d5dbe2; --bg:#f6f7f9;
+          --red:#d64545; --yel:#e8b923; --grn:#3a9d5d; --gry:#b7bcc4; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; font: 14px/1.4 system-ui, sans-serif; color: var(--ink); }
+  body { display: flex; flex-direction: column; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 8px 12px;
+           background: var(--bg); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 15px; margin: 0; }
+  header .meta { color: var(--muted); font-size: 12px; }
+  label { display: inline-flex; gap: 6px; align-items: center; }
+  input[type=number] { width: 60px; padding: 3px 6px; }
+  .legend { display: inline-flex; gap: 10px; align-items: center; font-size: 12px; flex-wrap: wrap; }
+  .sw { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  button { padding: 5px 12px; font: inherit; border: 1px solid #2b5fa8; background: #2f6fc4; color: #fff; border-radius: 5px; }
+  button:disabled { opacity: .55; }
+  input[type=date], select { padding: 3px 4px; font: inherit; }
+  #map { flex: 1; min-height: 0; }
+  .hut { position: relative; transform-origin: 50% 100%; }
+  .hut .box { background: rgba(255,255,255,.88); border: 1px solid rgba(0,0,0,.18); border-radius: 4px;
+              padding: 2px 3px 1px; box-shadow: 0 1px 3px rgba(0,0,0,.25); display: block; }
+  .hut svg { display: block; }
+  .hut .nm { position: absolute; left: 50%; top: 100%; transform: translate(-50%, 2px); white-space: nowrap;
+             font-size: 11px; font-weight: 600; color: #111; pointer-events: none;
+             text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; display: none; }
+  .show-names .hut .nm { display: block; }
+  .leaflet-popup-content table { border-collapse: collapse; margin-top: 6px; }
+  .leaflet-popup-content td, .leaflet-popup-content th { padding: 1px 8px 1px 0; text-align: left; font-size: 12px; }
+  .leaflet-popup-content td.n { font-variant-numeric: tabular-nums; text-align: right; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Disponibilités des cabanes</h1>
+  <label>Du <input id="from" type="date"></label>
+  <label>Au <input id="to" type="date"></label>
+  <label>Région <select id="region">
+    <option value="suisse">Suisse</option><option value="valais">Valais</option>
+    <option value="oberland">Oberland bernois</option><option value="grisons">Grisons</option>
+    <option value="tessin">Tessin</option><option value="alpes">Toutes les Alpes</option>
+  </select></label>
+  <label>Personnes <input id="persons" type="number" min="1" max="60"></label>
+  <button id="go" type="button">Rechercher</button>
+  <span class="meta" id="status"></span>
+  <label><input id="onlyok" type="checkbox"> Seulement cabanes avec ≥ 1 nuit suffisante</label>
+  <span class="legend">
+    <span><i class="sw" style="background:var(--red)"></i>insuffisant</span>
+    <span><i class="sw" style="background:var(--yel)"></i>juste (≤ +2)</span>
+    <span><i class="sw" style="background:var(--grn)"></i>confortable</span>
+    <span><i class="sw" style="background:var(--gry)"></i>pas de donnée</span>
+  </span>
+  <span class="meta" id="meta"></span>
+</header>
+<div id="map"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+let DATA = {"huts": [], "dates": [], "persons": 4, "region": "suisse", "generated": ""};
+const COL = { red: "#d64545", yel: "#e8b923", grn: "#3a9d5d", gry: "#b7bcc4" };
+const H = 44; // hauteur max des colonnes en px
+
+const map = L.map("map", { zoomControl: true });
+const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  { maxZoom: 18, attribution: "&copy; OpenStreetMap" }).addTo(map);
+const topo = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+  { maxZoom: 17, attribution: "&copy; OpenTopoMap, OSM" });
+L.control.layers({ "Plan": osm, "Relief": topo }, null, { position: "topright" }).addTo(map);
+const layer = L.layerGroup().addTo(map);
+
+const fmt = iso => iso.slice(8, 10) + "." + iso.slice(5, 7);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function colour(free, p) {
+  if (free == null) return COL.gry;
+  if (free < p) return COL.red;
+  if (free <= p + 2) return COL.yel;
+  return COL.grn;
+}
+
+function icon(h, p, scaleMax) {
+  const n = h.days.length;
+  const bw = Math.max(3, Math.min(9, Math.floor(96 / n)));
+  const gap = 1;
+  const W = n * (bw + gap) + gap;
+  let bars = "";
+  h.days.forEach((d, i) => {
+    const free = d.free;
+    const hh = free == null ? 3 : Math.max(2, Math.round(Math.min(free, scaleMax) / scaleMax * H));
+    const x = gap + i * (bw + gap);
+    const tip = fmt(d.d) + " : " + (free == null ? "pas de donnée" : free + " place(s) libre(s)");
+    bars += `<rect x="${x}" y="${H - hh}" width="${bw}" height="${hh}" fill="${colour(free, p)}"><title>${esc(tip)}</title></rect>`;
+  });
+  const ty = H - Math.round(Math.min(p, scaleMax) / scaleMax * H);
+  const thr = `<line x1="0" x2="${W}" y1="${ty}" y2="${ty}" stroke="#222" stroke-width="0.8" stroke-dasharray="2 2" opacity=".55"/>`;
+  const base = `<line x1="0" x2="${W}" y1="${H + .5}" y2="${H + .5}" stroke="#444" stroke-width="1"/>`;
+  const svg = `<svg width="${W}" height="${H + 2}" viewBox="0 0 ${W} ${H + 2}">${thr}${bars}${base}</svg>`;
+  const html = `<div class="hut"><span class="box">${svg}</span><span class="nm">${esc(h.name)}</span></div>`;
+  return L.divIcon({ html, className: "", iconSize: [W + 8, H + 8], iconAnchor: [(W + 8) / 2, H + 8] });
+}
+
+function popup(h, p) {
+  let rows = h.days.map(d => {
+    const c = colour(d.free, p);
+    const v = d.free == null ? "–" : d.free + (d.total ? " / " + d.total : "");
+    return `<tr><td><i class="sw" style="background:${c}"></i>${fmt(d.d)}</td><td class="n">${v}</td></tr>`;
+  }).join("");
+  const link = h.link ? `<div><a href="${esc(h.link)}" target="_blank" rel="noopener">Page de réservation</a></div>` : "";
+  const el = h.elev ? ` <span style="color:#667">${Math.round(h.elev)} m</span>` : "";
+  return `<strong>${esc(h.name)}</strong>${el}${link}<table><tr><th>Nuit</th><th>Libres / total</th></tr>${rows}</table>`;
+}
+
+let fitted = false;
+function render() {
+  const p = Math.max(1, parseInt(document.getElementById("persons").value, 10) || 1);
+  const only = document.getElementById("onlyok").checked;
+  layer.clearLayers();
+  let maxFree = 0;
+  DATA.huts.forEach(h => h.days.forEach(d => { if (d.free != null) maxFree = Math.max(maxFree, d.free); }));
+  const scaleMax = Math.max(p + 4, Math.min(maxFree, 40));
+  const pts = [];
+  let shown = 0, okCount = 0;
+  DATA.huts.forEach(h => {
+    const ok = h.days.some(d => d.free != null && d.free >= p);
+    if (ok) okCount++;
+    if (only && !ok) return;
+    shown++;
+    pts.push([h.lat, h.lon]);
+    L.marker([h.lat, h.lon], { icon: icon(h, p, scaleMax), riseOnHover: true })
+      .bindPopup(popup(h, p)).addTo(layer);
+  });
+  document.getElementById("meta").textContent =
+    `${DATA.region} · ${fmt(DATA.dates[0])} → ${fmt(DATA.dates[DATA.dates.length - 1])} · ` +
+    `${shown}/${DATA.huts.length} cabanes · ${okCount} avec au moins une nuit pour ${p} pers.`;
+  if (!fitted && pts.length) { map.fitBounds(pts, { padding: [60, 60], maxZoom: 11 }); fitted = true; }
+  if (!fitted) { map.setView([46.8, 8.2], 8); fitted = true; }
+}
+
+function zoomStyle() {
+  const z = map.getZoom();
+  document.body.classList.toggle("show-names", z >= 10);
+  const s = z <= 7 ? 0.55 : z === 8 ? 0.75 : 1;
+  document.querySelectorAll(".hut").forEach(e => { e.style.transform = `scale(${s})`; });
+}
+
+// Mini-serveur local (port 8000) : appels relayés en /api. Sinon (application Android) : appels directs.
+const API = location.port === "8000" ? "/api" : "https://hub.wodore.com/v1";
+const REGIONS = { suisse: [45.80, 47.85, 5.95, 10.55], valais: [45.85, 46.50, 6.75, 8.50],
+  oberland: [46.35, 46.85, 7.20, 8.50], grisons: [46.20, 47.10, 8.60, 10.50],
+  tessin: [45.80, 46.60, 8.40, 9.20], alpes: [43.50, 48.00, 4.50, 16.00] };
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function getJson(url) {
+  const r = await fetch(url);               // requête simple : pas d'en-tête personnalisé
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+async function fetchFeatures(base, params) {
+  let feats = [], offset = 0;
+  for (;;) {
+    const q = new URLSearchParams(Object.assign({}, params, { limit: 200, offset }));
+    const data = await getJson(base + "?" + q);
+    const got = data.features || [];
+    feats = feats.concat(got);
+    if (got.length < 200) return feats;
+    offset += 200;
+    await sleep(600);
+  }
+}
+async function fetchNames() {
+  const s = {}, p = {};
+  try {
+    const feats = await fetchFeatures(API + "/huts/huts.geojson",
+      { include_name: "true", include_elevation: "true", flat: "true", lang: "fr" });
+    feats.forEach(f => {
+      const pr = f.properties || {}, g = (f.geometry || {}).coordinates;
+      const info = { name: pr.name, elev: pr.elevation };
+      if (pr.slug) s[pr.slug] = info;
+      if (g) p[g[1].toFixed(4) + "," + g[0].toFixed(4)] = info;
+    });
+  } catch (e) { /* noms facultatifs */ }
+  return { s, p };
+}
+function isoRange(from, to) {
+  const out = [];
+  const a = Date.parse(from + "T00:00:00Z"), b = Date.parse(to + "T00:00:00Z");
+  for (let t = a; t <= b; t += 86400000) out.push(new Date(t).toISOString().slice(0, 10));
+  return out;
+}
+function buildHuts(feats, dates, bbox, names) {
+  const [la0, la1, lo0, lo1] = bbox, out = [];
+  feats.forEach(f => {
+    const g = (f.geometry || {}).coordinates, pr = f.properties || {};
+    if (!g || g.length < 2) return;
+    const lon = g[0], lat = g[1];
+    if (lat < la0 || lat > la1 || lon < lo0 || lon > lo1) return;
+    const info = names.s[pr.slug] || names.p[lat.toFixed(4) + "," + lon.toFixed(4)] || {};
+    const per = {};
+    (pr.data || []).forEach(d => { per[d.date] = d; });
+    const days = dates.map(iso => {
+      const d = per[iso];
+      return (!d || d.free == null) ? { d: iso, free: null, total: null, st: null }
+        : { d: iso, free: d.free, total: d.total, st: d.reservation_status };
+    });
+    if (!days.some(d => d.free != null)) return;
+    out.push({ slug: pr.slug, name: info.name || pr.name || String(pr.slug || "cabane").replace(/[-_]/g, " "),
+      elev: info.elev, lat, lon, source: pr.source, link: pr.source_link, days });
+  });
+  return out;
+}
+async function search() {
+  const st = $("status"), btn = $("go");
+  const from = $("from").value, to = $("to").value, key = $("region").value;
+  if (!from || !to) { st.textContent = "Choisissez les deux dates."; return; }
+  if (to < from) { st.textContent = "La date de fin précède le début."; return; }
+  const dates = isoRange(from, to);
+  if (dates.length > 31) { st.textContent = "Maximum 31 nuits."; return; }
+  btn.disabled = true;
+  try {
+    st.textContent = "Interrogation du service…";
+    const feats = await fetchFeatures(API + "/huts/availability/" + from + ".geojson",
+      { days: dates.length, lang: "fr" });
+    st.textContent = "Récupération des noms…";
+    await sleep(600);
+    const names = await fetchNames();
+    DATA = { huts: buildHuts(feats, dates, REGIONS[key], names), dates, persons: DATA.persons, region: key };
+    fitted = false;
+    st.textContent = "";
+    render();
+    if (!DATA.huts.length) st.textContent = "Aucune cabane trouvée pour cette période et cette région.";
+  } catch (e) {
+    st.textContent = (e instanceof TypeError)
+      ? "Le navigateur a bloqué la requête (CORS) ou il n'y a pas de réseau. Relancez via le script."
+      : "Échec : " + e.message;
+  } finally { btn.disabled = false; }
+}
+
+if (!DATA.dates.length) {   // page autonome : dates par défaut = prochain samedi + 2 nuits
+  const t = new Date(), add = (((6 - t.getDay()) + 7) % 7) || 7;
+  t.setDate(t.getDate() + add);
+  const iso = t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
+  const end = new Date(Date.parse(iso + "T00:00:00Z") + 2 * 86400000).toISOString().slice(0, 10);
+  DATA.dates = isoRange(iso, end);
+  $("status").textContent = "Choisissez les dates, puis Rechercher.";
+}
+$("from").value = DATA.dates[0];
+$("to").value = DATA.dates[DATA.dates.length - 1];
+$("region").value = REGIONS[DATA.region] ? DATA.region : "suisse";
+$("go").addEventListener("click", search);
+document.getElementById("persons").value = DATA.persons;
+document.getElementById("persons").addEventListener("input", render);
+document.getElementById("onlyok").addEventListener("change", render);
+map.on("zoomend", zoomStyle);
+map.on("layeradd", () => setTimeout(zoomStyle, 0));
+render();
+zoomStyle();
+</script>
+</body>
+</html>
