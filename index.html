@@ -22,7 +22,35 @@
   button { padding: 5px 12px; font: inherit; border: 1px solid #2b5fa8; background: #2f6fc4; color: #fff; border-radius: 5px; }
   button:disabled { opacity: .55; }
   input[type=date], select { padding: 3px 4px; font: inherit; }
-  #map { flex: 1; min-height: 0; }
+  #mapwrap { flex: 1; min-height: 0; position: relative; }
+  #map { position: absolute; inset: 0; }
+  #here { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 1000;
+          box-shadow: 0 2px 8px rgba(0,0,0,.35); padding: 8px 14px; white-space: nowrap; }
+  details.more { flex-basis: 100%; }
+  details.more summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+  .morebody { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; }
+  select { max-width: 100%; }
+  .datebtn { background: #fff; color: var(--ink); border: 1px solid #9aa5b1; }
+  #calwrap { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center;
+             justify-content: center; background: rgba(0,0,0,.35); padding: 12px; }
+  #calwrap[hidden] { display: none; }
+  .cal { background: #fff; border-radius: 10px; padding: 12px; width: min(340px, 100%);
+         box-shadow: 0 8px 30px rgba(0,0,0,.35); }
+  .calhead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
+             text-transform: capitalize; }
+  .cal .nav { width: 38px; height: 32px; padding: 0; background: #fff; color: var(--ink);
+              border: 1px solid var(--line); font-size: 18px; line-height: 1; }
+  .calgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+  .calgrid.wd span { text-align: center; font-size: 11px; color: var(--muted); padding: 2px 0; }
+  .cal .day { height: 38px; padding: 0; border: 0; background: none; color: var(--ink);
+              border-radius: 6px; font: inherit; }
+  .cal .day:disabled { color: #c3c9d0; }
+  .cal .day.today { font-weight: 700; }
+  .cal .day.mid { background: #dbe8f8; border-radius: 0; }
+  .cal .day.start { background: #2f6fc4; color: #fff; }
+  .cal .day.end { background: #fff; color: #2f6fc4; box-shadow: inset 0 0 0 2px #2f6fc4; }
+  .calhint { margin: 8px 2px; font-size: 13px; color: var(--muted); min-height: 18px; }
+  .calfoot { display: flex; justify-content: flex-end; }
   .hut { position: relative; transform-origin: 50% 100%; }
   .hut .box { background: rgba(255,255,255,.88); border: 1px solid rgba(0,0,0,.18); border-radius: 4px;
               padding: 2px 3px 1px; box-shadow: 0 1px 3px rgba(0,0,0,.25); display: block; }
@@ -31,6 +59,8 @@
              font-size: 11px; font-weight: 600; color: #111; pointer-events: none;
              text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; display: none; }
   .show-names .hut .nm { display: block; }
+  .oth .dot { display: block; width: 12px; height: 12px; border-radius: 50%; background: #fff;
+              border: 2px solid #8a929c; box-shadow: 0 0 2px rgba(0,0,0,.4); }
   .leaflet-popup-content table { border-collapse: collapse; margin-top: 6px; }
   .leaflet-popup-content td, .leaflet-popup-content th { padding: 1px 8px 1px 0; text-align: left; font-size: 12px; }
   .leaflet-popup-content td.n { font-variant-numeric: tabular-nums; text-align: right; }
@@ -39,26 +69,43 @@
 <body>
 <header>
   <h1>Disponibilités des cabanes</h1>
-  <label>Du <input id="from" type="date"></label>
-  <label>Au <input id="to" type="date"></label>
-  <label>Région <select id="region">
-    <option value="suisse">Suisse</option><option value="valais">Valais</option>
-    <option value="oberland">Oberland bernois</option><option value="grisons">Grisons</option>
-    <option value="tessin">Tessin</option><option value="alpes">Toutes les Alpes</option>
-  </select></label>
+  <button id="datebtn" class="datebtn" type="button"></button>
+  <label>Région <select id="region"></select></label>
   <label>Personnes <input id="persons" type="number" min="1" max="60"></label>
   <button id="go" type="button">Rechercher</button>
   <span class="meta" id="status"></span>
-  <label><input id="onlyok" type="checkbox"> Seulement cabanes avec ≥ 1 nuit suffisante</label>
-  <span class="legend">
-    <span><i class="sw" style="background:var(--red)"></i>insuffisant</span>
-    <span><i class="sw" style="background:var(--yel)"></i>juste (≤ +2)</span>
-    <span><i class="sw" style="background:var(--grn)"></i>confortable</span>
-    <span><i class="sw" style="background:var(--gry)"></i>pas de donnée</span>
-  </span>
+  <details class="more">
+    <summary>Légende et filtres</summary>
+    <div class="morebody">
+      <label><input id="showothers" type="checkbox" checked> Cabanes sans disponibilité suivie (○)</label>
+      <label><input id="onlyok" type="checkbox"> Seulement cabanes avec ≥ 1 nuit suffisante</label>
+      <span class="legend">
+        <span><i class="sw" style="background:var(--red)"></i>insuffisant</span>
+        <span><i class="sw" style="background:var(--yel)"></i>juste (≤ +2)</span>
+        <span><i class="sw" style="background:var(--grn)"></i>confortable</span>
+        <span><i class="sw" style="background:var(--gry)"></i>pas de donnée</span>
+      </span>
+    </div>
+  </details>
   <span class="meta" id="meta"></span>
 </header>
-<div id="map"></div>
+<div id="mapwrap">
+  <div id="map"></div>
+  <button id="here" type="button">Rechercher dans cette zone</button>
+</div>
+<div id="calwrap" hidden>
+  <div class="cal" role="dialog" aria-label="Choisir les dates">
+    <div class="calhead">
+      <button type="button" class="nav" id="prev">&lsaquo;</button>
+      <strong id="caltitle"></strong>
+      <button type="button" class="nav" id="next">&rsaquo;</button>
+    </div>
+    <div class="calgrid wd"><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
+    <div class="calgrid" id="days"></div>
+    <div class="calhint" id="calhint"></div>
+    <div class="calfoot"><button type="button" id="calok">OK</button></div>
+  </div>
+</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script>
 let DATA = {"huts": [], "dates": [], "persons": 4, "region": "suisse", "generated": ""};
@@ -104,6 +151,15 @@ function icon(h, p, scaleMax) {
   return L.divIcon({ html, className: "", iconSize: [W + 8, H + 8], iconAnchor: [(W + 8) / 2, H + 8] });
 }
 
+function otherIcon(h) {
+  const html = `<div class="hut oth"><span class="dot"></span><span class="nm">${esc(h.name)}</span></div>`;
+  return L.divIcon({ html, className: "", iconSize: [14, 14], iconAnchor: [7, 7] });
+}
+function otherPopup(h) {
+  const el = h.elev ? ` <span style="color:#667">${Math.round(h.elev)} m</span>` : "";
+  const link = h.link ? `<div><a href="${esc(h.link)}" target="_blank" rel="noopener">Page de la cabane</a></div>` : "";
+  return `<strong>${esc(h.name)}</strong>${el}<div style="margin-top:4px">Places libres non suivies par le service : renseignez-vous directement auprès de la cabane.</div>${link}`;
+}
 function popup(h, p) {
   let rows = h.days.map(d => {
     const c = colour(d.free, p);
@@ -134,9 +190,15 @@ function render() {
     L.marker([h.lat, h.lon], { icon: icon(h, p, scaleMax), riseOnHover: true })
       .bindPopup(popup(h, p)).addTo(layer);
   });
+  const others = (!only && $("showothers").checked) ? (DATA.others || []) : [];
+  others.forEach(h => {
+    L.marker([h.lat, h.lon], { icon: otherIcon(h), zIndexOffset: -500 }).bindPopup(otherPopup(h)).addTo(layer);
+  });
+  if (!pts.length) others.forEach(h => pts.push([h.lat, h.lon]));
   document.getElementById("meta").textContent =
-    `${DATA.region} · ${fmt(DATA.dates[0])} → ${fmt(DATA.dates[DATA.dates.length - 1])} · ` +
-    `${shown}/${DATA.huts.length} cabanes · ${okCount} avec au moins une nuit pour ${p} pers.`;
+    `${regionLabel(DATA.region)} · ${fmt(DATA.dates[0])} → ${fmt(addDays(DATA.dates[DATA.dates.length - 1], 1))} · ` +
+    `${shown}/${DATA.huts.length} cabanes · ${okCount} avec au moins une nuit pour ${p} pers.` +
+    (others.length ? ` · ${others.length} sans disponibilité suivie` : "");
   if (!fitted && pts.length) { map.fitBounds(pts, { padding: [60, 60], maxZoom: 11 }); fitted = true; }
   if (!fitted) { map.setView([46.8, 8.2], 8); fitted = true; }
 }
@@ -150,9 +212,7 @@ function zoomStyle() {
 
 // Mini-serveur local (port 8000) : appels relayés en /api. Sinon (application Android) : appels directs.
 const API = location.port === "8000" ? "/api" : "https://hub.wodore.com/v1";
-const REGIONS = { suisse: [45.80, 47.85, 5.95, 10.55], valais: [45.85, 46.50, 6.75, 8.50],
-  oberland: [46.35, 46.85, 7.20, 8.50], grisons: [46.20, 47.10, 8.60, 10.50],
-  tessin: [45.80, 46.60, 8.40, 9.20], alpes: [43.50, 48.00, 4.50, 16.00] };
+const REGIONS = {"suisse": {"label": "Suisse entière", "group": "Suisse", "bbox": [45.8, 47.85, 5.95, 10.55]}, "valais": {"label": "Valais", "group": "Suisse", "bbox": [45.85, 46.5, 6.75, 8.5]}, "bas-valais": {"label": "Bas-Valais et Mont-Blanc suisse", "group": "Suisse", "bbox": [45.85, 46.3, 6.75, 7.35]}, "valais-central": {"label": "Valais central (Anniviers, Hérens, Dix)", "group": "Suisse", "bbox": [45.9, 46.35, 7.1, 7.85]}, "haut-valais": {"label": "Haut-Valais (Zermatt, Saas, Aletsch)", "group": "Suisse", "bbox": [45.85, 46.6, 7.6, 8.5]}, "vaud-fribourg": {"label": "Alpes vaudoises et fribourgeoises", "group": "Suisse", "bbox": [46.2, 46.75, 6.6, 7.4]}, "oberland": {"label": "Oberland bernois", "group": "Suisse", "bbox": [46.35, 46.85, 7.2, 8.5]}, "centrale": {"label": "Suisse centrale (Uri, Schwytz, Unterwald)", "group": "Suisse", "bbox": [46.5, 47.15, 8.1, 9.0]}, "glaris-est": {"label": "Glaris et Suisse orientale", "group": "Suisse", "bbox": [46.75, 47.5, 8.8, 9.9]}, "grisons": {"label": "Grisons", "group": "Suisse", "bbox": [46.2, 47.1, 8.6, 10.5]}, "engadine": {"label": "Engadine et Val Müstair", "group": "Suisse", "bbox": [46.35, 46.95, 9.6, 10.55]}, "tessin": {"label": "Tessin", "group": "Suisse", "bbox": [45.8, 46.6, 8.4, 9.2]}, "jura": {"label": "Jura", "group": "Suisse", "bbox": [46.2, 47.5, 5.95, 7.7]}, "mont-blanc": {"label": "Mont-Blanc et Haute-Savoie", "group": "France", "bbox": [45.6, 46.45, 6.0, 7.1]}, "savoie": {"label": "Savoie (Vanoise, Beaufortain, Maurienne)", "group": "France", "bbox": [45.0, 45.8, 5.8, 7.2]}, "dauphine": {"label": "Dauphiné (Écrins, Belledonne, Vercors)", "group": "France", "bbox": [44.3, 45.5, 5.3, 6.9]}, "alpes-sud": {"label": "Alpes du Sud (Queyras, Mercantour)", "group": "France", "bbox": [43.6, 44.9, 5.8, 7.6]}, "aoste-piemont": {"label": "Val d'Aoste et Piémont", "group": "Italie", "bbox": [44.4, 46.0, 6.6, 8.2]}, "lombardie": {"label": "Lombardie (Valtelline, lacs)", "group": "Italie", "bbox": [45.7, 46.7, 8.6, 10.6]}, "dolomites": {"label": "Dolomites, Trentin et Haut-Adige", "group": "Italie", "bbox": [45.8, 47.1, 10.4, 12.6]}, "vorarlberg": {"label": "Vorarlberg et Allgäu", "group": "Autriche, Allemagne, Slovénie", "bbox": [46.8, 47.7, 9.5, 10.7]}, "tyrol": {"label": "Tyrol (Stubai, Ötztal, Zillertal)", "group": "Autriche, Allemagne, Slovénie", "bbox": [46.7, 47.6, 10.4, 12.4]}, "alpes-orientales": {"label": "Salzbourg, Carinthie, Styrie", "group": "Autriche, Allemagne, Slovénie", "bbox": [46.4, 47.8, 12.2, 15.5]}, "baviere": {"label": "Alpes bavaroises", "group": "Autriche, Allemagne, Slovénie", "bbox": [47.3, 47.9, 10.5, 13.2]}, "slovenie": {"label": "Slovénie (Alpes juliennes)", "group": "Autriche, Allemagne, Slovénie", "bbox": [45.8, 46.6, 13.2, 15.5]}, "alpes": {"label": "Toutes les Alpes", "group": "Toute la chaîne", "bbox": [43.5, 48.0, 4.5, 16.0]}};
 const $ = id => document.getElementById(id);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -174,18 +234,19 @@ async function fetchFeatures(base, params) {
   }
 }
 async function fetchNames() {
-  const s = {}, p = {};
+  const s = {}, p = {}, all = [];
   try {
     const feats = await fetchFeatures(API + "/huts/huts.geojson",
-      { include_name: "true", include_elevation: "true", flat: "true", lang: "fr" });
+      { include_name: "true", include_elevation: "true", include_has_availability: "true",
+        embed_sources: "true", flat: "true", lang: "fr" });
     feats.forEach(f => {
       const pr = f.properties || {}, g = (f.geometry || {}).coordinates;
       const info = { name: pr.name, elev: pr.elevation };
       if (pr.slug) s[pr.slug] = info;
-      if (g) p[g[1].toFixed(4) + "," + g[0].toFixed(4)] = info;
+      if (g) { p[g[1].toFixed(4) + "," + g[0].toFixed(4)] = info; all.push({ pr, g }); }
     });
   } catch (e) { /* noms facultatifs */ }
-  return { s, p };
+  return { s, p, all };
 }
 function isoRange(from, to) {
   const out = [];
@@ -214,45 +275,147 @@ function buildHuts(feats, dates, bbox, names) {
   });
   return out;
 }
+function hutLink(pr) {
+  if (pr.url) return pr.url;
+  const src = Array.isArray(pr.sources) ? pr.sources : [];
+  const sac = src.find(x => x && x.slug === "sac" && x.link);
+  if (sac) return sac.link;
+  const any = src.find(x => x && x.link);
+  return any ? any.link : null;
+}
+function buildOthers(all, bbox, taken) {
+  const [la0, la1, lo0, lo1] = bbox, out = [];
+  (all || []).forEach(({ pr, g }) => {
+    if (pr.has_availability !== false) return;
+    const lon = g[0], lat = g[1];
+    if (lat < la0 || lat > la1 || lon < lo0 || lon > lo1) return;
+    if (taken.has(pr.slug)) return;
+    const src = Array.isArray(pr.sources) ? pr.sources : null;
+    if (src && !src.some(x => x && x.slug === "sac")) return;   // cabanes du CAS seulement
+    out.push({ slug: pr.slug, name: pr.name || String(pr.slug || "cabane").replace(/[-_]/g, " "),
+      elev: pr.elevation, lat, lon, link: hutLink(pr) });
+  });
+  return out;
+}
+const pad = n => String(n).padStart(2, "0");
+const addDays = (iso, n) => new Date(Date.parse(iso + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
+const diffDays = (a, b) => Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / 86400000);
+const regionLabel = k => k === "visible" ? "zone visible" : (REGIONS[k] ? REGIONS[k].label : k);
+const todayIso = (() => { const t = new Date(); return t.getFullYear() + "-" + pad(t.getMonth() + 1) + "-" + pad(t.getDate()); })();
+
+function buildRegionSelect() {
+  const groups = {};
+  Object.keys(REGIONS).forEach(k => { (groups[REGIONS[k].group] = groups[REGIONS[k].group] || []).push(k); });
+  let h = '<option value="visible">Zone visible de la carte</option>';
+  Object.keys(groups).forEach(g => {
+    h += '<optgroup label="' + esc(g) + '">' + groups[g].map(k =>
+      '<option value="' + k + '">' + esc(REGIONS[k].label) + '</option>').join("") + "</optgroup>";
+  });
+  $("region").innerHTML = h;
+}
+
+/* Calendrier : une arrivée puis un départ. Les nuits vont de l'arrivée à la veille du départ. */
+let arr = null, dep = null, vy = 0, vm = 0;
+function nightsLabel() { const n = diffDays(arr, dep); return n + " nuit" + (n > 1 ? "s" : ""); }
+function updateDateBtn() {
+  $("datebtn").textContent = (arr && dep) ? fmt(arr) + " → " + fmt(dep) + " · " + nightsLabel()
+    : (arr ? "Arrivée " + fmt(arr) + " → départ ?" : "Choisir les dates");
+}
+function drawCal() {
+  const first = new Date(Date.UTC(vy, vm, 1));
+  $("caltitle").textContent = new Intl.DateTimeFormat("fr-CH", { month: "long", year: "numeric", timeZone: "UTC" }).format(first);
+  const t = new Date();
+  $("prev").disabled = (vy * 12 + vm) <= (t.getFullYear() * 12 + t.getMonth());
+  const offset = (first.getUTCDay() + 6) % 7;
+  const n = new Date(Date.UTC(vy, vm + 1, 0)).getUTCDate();
+  let h = "";
+  for (let i = 0; i < offset; i++) h += "<span></span>";
+  for (let d = 1; d <= n; d++) {
+    const iso = vy + "-" + pad(vm + 1) + "-" + pad(d);
+    let c = "day";
+    if (iso === todayIso) c += " today";
+    if (iso === arr) c += " start";
+    else if (dep && iso === dep) c += " end";
+    else if (arr && dep && iso > arr && iso < dep) c += " mid";
+    h += '<button type="button" class="' + c + '" data-d="' + iso + '"' + (iso < todayIso ? " disabled" : "") + ">" + d + "</button>";
+  }
+  $("days").innerHTML = h;
+  $("calhint").textContent = (arr && dep) ? nightsLabel() + " : arrivée " + fmt(arr) + ", départ " + fmt(dep)
+    : (arr ? "Touchez maintenant la date de départ." : "Touchez la date d'arrivée.");
+}
+function openCal() {
+  const base = arr || todayIso;
+  vy = +base.slice(0, 4); vm = +base.slice(5, 7) - 1;
+  $("calwrap").hidden = false;
+  drawCal();
+}
+function closeCal() { $("calwrap").hidden = true; }
+function pick(iso) {
+  if (!arr || dep) { arr = iso; dep = null; }
+  else if (iso > arr && diffDays(arr, iso) <= 31) { dep = iso; }
+  else {
+    if (iso > arr) $("status").textContent = "Maximum 31 nuits : l'arrivée a été déplacée.";
+    arr = iso; dep = null;
+  }
+  updateDateBtn(); drawCal();
+  if (arr && dep) setTimeout(closeCal, 250);
+}
+
 async function search() {
-  const st = $("status"), btn = $("go");
-  const from = $("from").value, to = $("to").value, key = $("region").value;
-  if (!from || !to) { st.textContent = "Choisissez les deux dates."; return; }
-  if (to < from) { st.textContent = "La date de fin précède le début."; return; }
-  const dates = isoRange(from, to);
-  if (dates.length > 31) { st.textContent = "Maximum 31 nuits."; return; }
-  btn.disabled = true;
+  const st = $("status"), btn = $("go"), key = $("region").value;
+  if (!arr || !dep) { st.textContent = "Choisissez l'arrivée et le départ."; openCal(); return; }
+  const dates = isoRange(arr, addDays(dep, -1));
+  let bbox;
+  if (key === "visible") { const b = map.getBounds(); bbox = [b.getSouth(), b.getNorth(), b.getWest(), b.getEast()]; }
+  else bbox = REGIONS[key].bbox;
+  btn.disabled = true; $("here").disabled = true;
   try {
     st.textContent = "Interrogation du service…";
-    const feats = await fetchFeatures(API + "/huts/availability/" + from + ".geojson",
+    const feats = await fetchFeatures(API + "/huts/availability/" + arr + ".geojson",
       { days: dates.length, lang: "fr" });
     st.textContent = "Récupération des noms…";
     await sleep(600);
     const names = await fetchNames();
-    DATA = { huts: buildHuts(feats, dates, REGIONS[key], names), dates, persons: DATA.persons, region: key };
-    fitted = false;
+    const huts = buildHuts(feats, dates, bbox, names);
+    const others = buildOthers(names.all, bbox, new Set(huts.map(h => h.slug)));
+    DATA = { huts, others, dates, persons: DATA.persons, region: key };
+    fitted = (key === "visible");       // zone visible : on ne bouge pas la carte
     st.textContent = "";
     render();
-    if (!DATA.huts.length) st.textContent = "Aucune cabane trouvée pour cette période et cette région.";
+    if (!DATA.huts.length && !DATA.others.length) st.textContent = "Aucune cabane trouvée pour cette période et cette zone.";
   } catch (e) {
     st.textContent = (e instanceof TypeError)
-      ? "Le navigateur a bloqué la requête (CORS) ou il n'y a pas de réseau. Relancez via le script."
+      ? "Le navigateur a bloqué la requête (CORS) ou il n'y a pas de réseau."
       : "Échec : " + e.message;
-  } finally { btn.disabled = false; }
+  } finally { btn.disabled = false; $("here").disabled = false; }
 }
 
-if (!DATA.dates.length) {   // page autonome : dates par défaut = prochain samedi + 2 nuits
+buildRegionSelect();
+if (!DATA.dates.length) {   // page autonome : arrivée le prochain samedi, départ 2 jours plus tard
   const t = new Date(), add = (((6 - t.getDay()) + 7) % 7) || 7;
   t.setDate(t.getDate() + add);
-  const iso = t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
-  const end = new Date(Date.parse(iso + "T00:00:00Z") + 2 * 86400000).toISOString().slice(0, 10);
-  DATA.dates = isoRange(iso, end);
+  arr = t.getFullYear() + "-" + pad(t.getMonth() + 1) + "-" + pad(t.getDate());
+  dep = addDays(arr, 2);
+  DATA.dates = isoRange(arr, addDays(dep, -1));
   $("status").textContent = "Choisissez les dates, puis Rechercher.";
+} else {
+  arr = DATA.dates[0]; dep = addDays(DATA.dates[DATA.dates.length - 1], 1);
 }
-$("from").value = DATA.dates[0];
-$("to").value = DATA.dates[DATA.dates.length - 1];
+updateDateBtn();
 $("region").value = REGIONS[DATA.region] ? DATA.region : "suisse";
+$("datebtn").addEventListener("click", openCal);
+$("prev").addEventListener("click", () => { vm--; if (vm < 0) { vm = 11; vy--; } drawCal(); });
+$("next").addEventListener("click", () => { vm++; if (vm > 11) { vm = 0; vy++; } drawCal(); });
+$("calok").addEventListener("click", closeCal);
+$("calwrap").addEventListener("click", e => { if (e.target.id === "calwrap") closeCal(); });
+$("days").addEventListener("click", e => { const b = e.target.closest(".day"); if (b && !b.disabled) pick(b.dataset.d); });
+$("region").addEventListener("change", () => {
+  const k = $("region").value;
+  if (k !== "visible") { const b = REGIONS[k].bbox; map.fitBounds([[b[0], b[2]], [b[1], b[3]]]); }
+});
+$("here").addEventListener("click", () => { $("region").value = "visible"; search(); });
 $("go").addEventListener("click", search);
+$("showothers").addEventListener("change", render);
 document.getElementById("persons").value = DATA.persons;
 document.getElementById("persons").addEventListener("input", render);
 document.getElementById("onlyok").addEventListener("change", render);
