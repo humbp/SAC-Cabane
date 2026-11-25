@@ -120,6 +120,11 @@ def write_android(root="android/app/src/main/res"):
     open(os.path.join(values, "ic_launcher_background.xml"), "w", encoding="utf-8").write(
         '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n'
         '    <color name="ic_launcher_background">%s</color>\n</resources>\n' % SKY_HEX)
+    # supprime les images par défaut de Capacitor, pour qu'aucune ne passe devant la nôtre
+    for old in ("drawable-v24/ic_launcher_foreground.xml", "drawable/ic_launcher_background.xml"):
+        path = os.path.join(root, old)
+        if os.path.exists(path):
+            os.remove(path)
     print("Icônes Android écrites dans", root)
 
 
