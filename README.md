@@ -59,6 +59,8 @@ Voir `Guide_Diffusion_Cabanes.pdf`. La compilation tourne à chaque modification
 
 - Seules les cabanes dont le service suit les disponibilités reçoivent un histogramme. Les autres se réservent par téléphone ou par e-mail.
 - France (FFCAM), Italie (CAI) et Slovénie (PZS) n'offrent pas d'accès public aux places libres : ces cabanes apparaissent en cercle gris avec le lien du système de réservation du pays (pays estimé d'après la position, approximatif près des frontières). L'Autriche, l'Allemagne et le Haut-Adige passent par Hut-Reservation, lu par le service quand il suit la cabane.
+- Une cabane suivie par le service mais sans place publiée pour les dates choisies (fermée, réservation pas ouverte) s'affiche en cercle gris.
+- Le champ **Chercher une cabane** (dans Légende et filtres) dit si une cabane est dans la liste du service et pourquoi elle n'est pas affichée. **Mes cabanes** permet d'en ajouter à la main (position = croix au centre de la carte), conservées sur l'appareil.
 - Le filtre de taille s'appuie sur la capacité annoncée par le service ; les cercles gris, sans capacité connue, sont masqués dès que la plage est réduite.
 - Une cabane fermée à la saison choisie n'a pas de donnée et n'apparaît pas avec des colonnes.
 - Les rectangles de région sont approximatifs. La couverture des cabanes hors de Suisse dépend du service.

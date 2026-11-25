@@ -32,6 +32,19 @@
   details.more summary { cursor: pointer; font-size: 12px; color: var(--muted); }
   .morebody { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; }
   select { max-width: 100%; }
+  .oth.mine .dot { border-color: #2f6fc4; background: #cfe0f7; }
+  .tools { flex-basis: 100%; display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+  .tools .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .tools input[type=text], .tools input[type=url] { padding: 4px 6px; font: inherit; min-width: 0; flex: 1 1 130px; }
+  .tools input[type=number] { width: 70px; }
+  .tools .res { font-size: 12px; color: var(--ink); }
+  .tools .res div { padding: 3px 0; border-bottom: 1px solid var(--line); }
+  .tools .res a { color: #2b5fa8; }
+  #cross { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; z-index: 900;
+           pointer-events: none; }
+  #cross:before, #cross:after { content: ""; position: absolute; background: #2f6fc4; }
+  #cross:before { left: 12px; top: 0; width: 2px; height: 26px; }
+  #cross:after { top: 12px; left: 0; height: 2px; width: 26px; }
   .sizef { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .dual { position: relative; width: 190px; height: 24px; }
   .dual .track, .dual .fill { position: absolute; top: 10px; height: 4px; border-radius: 2px; }
@@ -98,6 +111,16 @@
           <input id="smax" type="range" min="0" max="250" step="5" value="250" aria-label="Places maximum"></span></div>
       <label><input id="showothers" type="checkbox" checked> Cabanes sans disponibilité suivie (○), avec le lien de réservation du pays</label>
       <label><input id="onlyok" type="checkbox"> Seulement cabanes avec ≥ 1 nuit suffisante</label>
+      <div class="tools">
+        <b>Chercher une cabane dans la liste du service</b>
+        <div class="row"><input id="fq" type="text" placeholder="Nom (ex. Mutthorn)"><button id="fgo" type="button">Chercher</button></div>
+        <div class="res" id="fres"></div>
+        <details id="persod"><summary><b>Mes cabanes</b> (ajoutées à la main)</summary>
+          <div class="row" style="margin-top:6px">Déplacez la carte pour que la croix soit sur la cabane, puis :</div>
+          <div class="row"><input id="pname" type="text" placeholder="Nom"><input id="plink" type="url" placeholder="Lien (facultatif)">
+            <input id="pcap" type="number" min="1" max="400" placeholder="Places"><button id="padd" type="button">Ajouter ici</button></div>
+          <div class="res" id="plist"></div></details>
+      </div>
       <span class="legend">
         <span><i class="sw" style="background:var(--red)"></i>insuffisant</span>
         <span><i class="sw" style="background:var(--yel)"></i>juste (≤ +2)</span>
@@ -109,6 +132,7 @@
   <span class="meta" id="meta"></span>
 </header>
 <div id="mapwrap">
+  <div id="cross" hidden></div>
   <div id="map"></div>
   <button id="here" type="button">Rechercher dans cette zone</button>
 </div>
@@ -171,7 +195,7 @@ function icon(h, p, scaleMax) {
 }
 
 function otherIcon(h) {
-  const html = `<div class="hut oth"><span class="dot"></span><span class="nm">${esc(h.name)}</span></div>`;
+  const html = `<div class="hut oth${h.mine ? " mine" : ""}"><span class="dot"></span><span class="nm">${esc(h.name)}</span></div>`;
   return L.divIcon({ html, className: "", iconSize: [14, 14], iconAnchor: [7, 7] });
 }
 // Systèmes de réservation par pays (liens vérifiés ; l'application ne peut pas y lire les places libres)
@@ -208,9 +232,14 @@ function otherPopup(h) {
   const el = h.elev ? ` <span style="color:#667">${Math.round(h.elev)} m</span>` : "";
   const link = h.link ? `<div><a href="${esc(h.link)}" target="_blank" rel="noopener">Page de la cabane</a></div>` : "";
   const b = BOOKING[h.country];
+  if (h.mine) return `<strong>${esc(h.name)}</strong> <span style="color:#667">(ma cabane)</span>` +
+    (h.cap ? `<div style="color:#667">Capacité : ${h.cap} places</div>` : "") + link;
+  const note = h.nodata
+    ? "Suivie par le service, mais aucune place publiée pour ces dates : cabane fermée, ou réservations pas encore ouvertes."
+    : "Places libres non lisibles par l'application : renseignez-vous auprès de la cabane.";
   const book = b ? `<div style="margin-top:4px">Réservation (${esc(COUNTRY_NAME[h.country])}, pays estimé d'après la position) : ` +
     `<a href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.name)}</a></div>` : "";
-  return `<strong>${esc(h.name)}</strong>${el}<div style="margin-top:4px">Places libres non lisibles par l'application : renseignez-vous auprès de la cabane.</div>${book}${link}`;
+  return `<strong>${esc(h.name)}</strong>${el}<div style="margin-top:4px">${note}</div>${book}${link}`;
 }
 function popup(h, p) {
   let rows = h.days.map(d => {
@@ -250,6 +279,9 @@ function render() {
   const others = (!only && !sizeOn && $("showothers").checked) ? (DATA.others || []) : [];
   others.forEach(h => {
     L.marker([h.lat, h.lon], { icon: otherIcon(h), zIndexOffset: -500 }).bindPopup(otherPopup(h)).addTo(layer);
+  });
+  loadMine().filter(h => h.cap == null ? !sizeOn : sizeOk(h)).forEach(h => {
+    L.marker([h.lat, h.lon], { icon: otherIcon(h), zIndexOffset: -400 }).bindPopup(otherPopup(h)).addTo(layer);
   });
   if (!pts.length) others.forEach(h => pts.push([h.lat, h.lon]));
   document.getElementById("meta").textContent =
@@ -344,7 +376,7 @@ function hutLink(pr) {
 function buildOthers(all, bbox, taken) {
   const [la0, la1, lo0, lo1] = bbox, out = [];
   (all || []).forEach(({ pr, g }) => {
-    if (pr.has_availability !== false) return;
+    const nodata = pr.has_availability !== false;      // suivie par le service, mais sans donnée pour ces dates
     const lon = g[0], lat = g[1];
     if (lat < la0 || lat > la1 || lon < lo0 || lon > lo1) return;
     if (taken.has(pr.slug)) return;
@@ -353,7 +385,7 @@ function buildOthers(all, bbox, taken) {
     const country = isSac ? "CH" : countryOf(lat, lon);
     if (!isSac && !(country && country !== "CH")) return;       // hors CAS : seulement FR, IT, AT, SI
     out.push({ slug: pr.slug, name: pr.name || String(pr.slug || "cabane").replace(/[-_]/g, " "),
-      elev: pr.elevation, lat, lon, link: hutLink(pr), country });
+      elev: pr.elevation, lat, lon, link: hutLink(pr), country, nodata });
   });
   return out;
 }
@@ -436,6 +468,7 @@ async function search() {
     st.textContent = "Récupération des noms…";
     await sleep(600);
     const names = await fetchNames();
+    ALL = names.all;
     const huts = buildHuts(feats, dates, bbox, names);
     const others = buildOthers(names.all, bbox, new Set(huts.map(h => h.slug)));
     DATA = { huts, others, dates, persons: DATA.persons, region: key };
@@ -476,6 +509,60 @@ $("region").addEventListener("change", () => {
 $("here").addEventListener("click", () => { $("region").value = "visible"; search(); });
 $("go").addEventListener("click", search);
 $("showothers").addEventListener("change", render);
+let ALL = null;
+const PK = "cabanes_perso";
+function loadMine() { try { return JSON.parse(localStorage.getItem(PK) || "[]").map(h => Object.assign(h, { mine: true })); } catch (e) { return []; } }
+function saveMine(a) { try { localStorage.setItem(PK, JSON.stringify(a)); } catch (e) { $("status").textContent = "Impossible d'enregistrer ici."; } }
+function drawMine() {
+  const a = loadMine();
+  $("plist").innerHTML = a.length ? a.map((h, i) => `<div>${esc(h.name)}${h.cap ? " · " + h.cap + " places" : ""} ` +
+    `<a href="#" data-del="${i}">supprimer</a></div>`).join("") : "Aucune pour le moment.";
+}
+$("padd").addEventListener("click", () => {
+  const name = $("pname").value.trim();
+  if (!name) { $("pname").focus(); return; }
+  const c = map.getCenter(), cap = parseInt($("pcap").value, 10);
+  const a = loadMine().map(h => ({ name: h.name, lat: h.lat, lon: h.lon, link: h.link, cap: h.cap }));
+  let link = $("plink").value.trim(); if (link && !/^https?:\/\//i.test(link)) link = "https://" + link;
+  a.push({ name, lat: +c.lat.toFixed(5), lon: +c.lng.toFixed(5), link: link || null, cap: cap > 0 ? cap : null });
+  saveMine(a); $("pname").value = ""; $("plink").value = ""; $("pcap").value = ""; drawMine(); render();
+});
+$("plist").addEventListener("click", e => {
+  const d = e.target.closest("[data-del]"); if (!d) return; e.preventDefault();
+  const a = loadMine().map(h => ({ name: h.name, lat: h.lat, lon: h.lon, link: h.link, cap: h.cap }));
+  a.splice(+d.dataset.del, 1); saveMine(a); drawMine(); render();
+});
+$("persod").addEventListener("toggle", () => { $("cross").hidden = !$("persod").open; });
+const norm = t => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+async function findHut() {
+  const q = norm($("fq").value.trim()), out = $("fres");
+  if (q.length < 3) { out.textContent = "Tapez au moins 3 lettres."; return; }
+  out.textContent = "Recherche…";
+  try {
+    if (!ALL) ALL = (await fetchNames()).all;
+    const hits = ALL.filter(x => norm(x.pr.name).includes(q) || norm(x.pr.slug).includes(q)).slice(0, 6);
+    if (!hits.length) { out.innerHTML = "<div>Aucune cabane de ce nom dans la liste du service. Vous pouvez l'ajouter sous « Mes cabanes ».</div>"; return; }
+    const key = $("region").value, bb = key === "visible" || !REGIONS[key] ? null : REGIONS[key].bbox;
+    out.innerHTML = hits.map(({ pr, g }) => {
+      const lat = g[1], lon = g[0], src = (Array.isArray(pr.sources) ? pr.sources : []).map(x => x && x.slug).filter(Boolean);
+      const inDraw = (DATA.huts || []).some(h => h.slug === pr.slug), inOth = (DATA.others || []).some(h => h.slug === pr.slug);
+      let why;
+      if (inDraw) why = "affichée avec histogramme";
+      else if (inOth) why = "affichée en cercle gris";
+      else if (bb && (lat < bb[0] || lat > bb[1] || lon < bb[2] || lon > bb[3])) why = "hors de la région choisie";
+      else if (!DATA.dates.length || !DATA.huts.length && !DATA.others.length) why = "lancez d'abord une recherche";
+      else why = "non affichée : source " + (src.join(", ") || "inconnue") + (pr.has_availability === false ? ", places non suivies" : "");
+      return `<div><b>${esc(pr.name || pr.slug)}</b> · ${pr.has_availability === false ? "places non suivies" : "suivie par le service"} · ` +
+        `sources : ${esc(src.join(", ") || "?")}<br>${esc(why)} · <a href="#" data-lat="${lat}" data-lon="${lon}">voir sur la carte</a></div>`;
+    }).join("");
+  } catch (e) { out.textContent = "Échec : " + e.message; }
+}
+$("fgo").addEventListener("click", findHut);
+$("fres").addEventListener("click", e => {
+  const a = e.target.closest("[data-lat]"); if (!a) return; e.preventDefault();
+  map.setView([+a.dataset.lat, +a.dataset.lon], 12);
+});
+drawMine();
 const SIZE_MAX = 250;
 function sizeRange() { return [+$("smin").value, +$("smax").value]; }
 function sizeLabel() {
