@@ -107,9 +107,10 @@
     <div class="morebody">
       <div class="sizef">Taille des cabanes : <b id="sizelbl"></b>
         <span class="dual"><span class="track"></span><span class="fill" id="sizefill"></span>
-          <input id="smin" type="range" min="0" max="250" step="5" value="0" aria-label="Places minimum">
-          <input id="smax" type="range" min="0" max="250" step="5" value="250" aria-label="Places maximum"></span></div>
+          <input id="smin" type="range" min="0" max="120" step="5" value="0" aria-label="Places minimum">
+          <input id="smax" type="range" min="0" max="120" step="5" value="120" aria-label="Places maximum"></span></div>
       <label><input id="showothers" type="checkbox" checked> Cabanes sans disponibilité suivie (○), avec le lien de réservation du pays</label>
+      <span class="meta" style="flex-basis:100%">Version de l'application : <span id="ver">__BUILD__</span></span>
       <label><input id="onlyok" type="checkbox"> Seulement cabanes avec ≥ 1 nuit suffisante</label>
       <div class="tools">
         <b>Chercher une cabane dans la liste du service</b>
@@ -262,9 +263,7 @@ function render() {
   DATA.huts.forEach(h => h.days.forEach(d => { if (d.free != null) maxFree = Math.max(maxFree, d.free); }));
   const scaleMax = Math.max(p + 4, Math.min(maxFree, 40));
   const pts = [];
-  const [smin, smax] = sizeRange();
-  const sizeOn = smin > 0 || smax < SIZE_MAX;
-  const sizeOk = h => h.cap == null ? !sizeOn : (h.cap >= smin && (smax >= SIZE_MAX || h.cap <= smax));
+  const sizeOn = isSizeOn();
   let shown = 0, okCount = 0;
   DATA.huts.forEach(h => {
     if (!sizeOk(h)) return;
@@ -547,13 +546,24 @@ async function findHut() {
       const lat = g[1], lon = g[0], src = (Array.isArray(pr.sources) ? pr.sources : []).map(x => x && x.slug).filter(Boolean);
       const inDraw = (DATA.huts || []).some(h => h.slug === pr.slug), inOth = (DATA.others || []).some(h => h.slug === pr.slug);
       let why;
-      if (inDraw) why = "affichée avec histogramme";
-      else if (inOth) why = "affichée en cercle gris";
+      const hd = (DATA.huts || []).find(h => h.slug === pr.slug), ho = (DATA.others || []).find(h => h.slug === pr.slug);
+      if (hd) {
+        const [a, b] = sizeRange();
+        if (!sizeOk(hd)) why = "<b>masquée par le filtre de taille</b> : capacité " + (hd.cap || "inconnue") + " places, filtre " + sizeLabel();
+        else if ($("onlyok").checked && !hd.days.some(d => d.free != null && d.free >= (parseInt($("persons").value, 10) || 1)))
+          why = "<b>masquée par « Seulement cabanes avec ≥ 1 nuit suffisante »</b>";
+        else why = "affichée avec histogramme (capacité " + (hd.cap || "inconnue") + " places)";
+      } else if (ho) {
+        why = $("onlyok").checked ? "<b>masquée par « Seulement cabanes avec ≥ 1 nuit suffisante »</b>"
+          : isSizeOn() ? "<b>masquée par le filtre de taille</b> (cercle gris, capacité inconnue)"
+          : !$("showothers").checked ? "<b>masquée</b> : case « Cabanes sans disponibilité suivie » décochée"
+          : "affichée en cercle gris";
+      }
       else if (bb && (lat < bb[0] || lat > bb[1] || lon < bb[2] || lon > bb[3])) why = "hors de la région choisie";
       else if (!DATA.dates.length || !DATA.huts.length && !DATA.others.length) why = "lancez d'abord une recherche";
       else why = "non affichée : source " + (src.join(", ") || "inconnue") + (pr.has_availability === false ? ", places non suivies" : "");
       return `<div><b>${esc(pr.name || pr.slug)}</b> · ${pr.has_availability === false ? "places non suivies" : "suivie par le service"} · ` +
-        `sources : ${esc(src.join(", ") || "?")}<br>${esc(why)} · <a href="#" data-lat="${lat}" data-lon="${lon}">voir sur la carte</a></div>`;
+        `sources : ${esc(src.join(", ") || "?")}<br>${why} · <a href="#" data-lat="${lat}" data-lon="${lon}">voir sur la carte</a></div>`;
     }).join("");
   } catch (e) { out.textContent = "Échec : " + e.message; }
 }
@@ -563,8 +573,11 @@ $("fres").addEventListener("click", e => {
   map.setView([+a.dataset.lat, +a.dataset.lon], 12);
 });
 drawMine();
-const SIZE_MAX = 250;
+if ($("ver").textContent.indexOf("__") === 0) $("ver").textContent = "locale";
+const SIZE_MAX = 120;
 function sizeRange() { return [+$("smin").value, +$("smax").value]; }
+function isSizeOn() { const [a, b] = sizeRange(); return a > 0 || b < SIZE_MAX; }
+function sizeOk(h) { const [a, b] = sizeRange(); return h.cap == null ? !isSizeOn() : (h.cap >= a && (b >= SIZE_MAX || h.cap <= b)); }
 function sizeLabel() {
   const [a, b] = sizeRange();
   return a === 0 && b >= SIZE_MAX ? "toutes" : (a + " – " + (b >= SIZE_MAX ? SIZE_MAX + "+" : b) + " places");
